@@ -14,7 +14,7 @@ function uhc_save_cookie() {
         </script>    
         <?php
         setcookie('uhc_referral_code', $referral_code, time() + (86400 * 30));
-        //return 'Referral code cookie set successfully!';
+        //return 'Referral code cookie set successfully';
     } 
     
 }
