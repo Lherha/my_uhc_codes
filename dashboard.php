@@ -187,30 +187,32 @@ function update_points_on_order_completion($order_id) {
         // If user ID found, update points in the database
         if ($user_id) {
             // Get the current points and amount from the database
-            $current_points = (int) $wpdb->get_var($wpdb->prepare("
-                SELECT SUM(point)
-                FROM $wpdb->prefix"."uhc_leaderboard
-                WHERE referral_code = %s
-            ", $referral_code));
-
             $current_amount = (float) $wpdb->get_var($wpdb->prepare("
                 SELECT SUM(amount)
                 FROM $wpdb->prefix"."uhc_leaderboard
-                WHERE referral_code = %s
+                WHERE referral_id = %s
             ", $referral_code));
 
             // Get the order total amount
             $amount = $order->get_total();
 
             // Update points and amount in the database
-            $wpdb->update(
-                $wpdb->prefix."uhc_leaderboard",
-                array(
-                    'point' => $current_points + 1,
-                    'amount' => $current_amount + $amount,
-                ),
-                array('user_id' => $user_id)
-            );
+            if ($amount > 0) { // Ensure only non-zero amounts are considered
+                $wpdb->insert(
+                    $wpdb->prefix."uhc_leaderboard",
+                    array(
+                        'referral_id' => $referral_code,
+                        'ip_address' => '', // Add logic to get IP address if needed
+                        'country' => '', // Add logic to get country where payment is made
+                        'order_id' => $order_id,
+                        'amount' => $amount,
+                        'payment_status' => 'completed',
+                        'point' => 1,
+                        'date' => current_time('mysql', 1)
+                    ),
+                    array('%s', '%s', '%s', '%d', '%f', '%s', '%d', '%s')
+                );
+            }
         }
     }
 }
@@ -225,42 +227,68 @@ function display_uhc_leaderboard_function() {
     // SQL query to retrieve data from the table
     $query = "
         SELECT 
-            id,
             referral_id,
-            SUM(amount) AS cumulative_amount,
-            SUM(point) AS cumulative_points
+            country,
+            SUM(amount) AS cumulative_amount
         FROM 
             $table_name
         GROUP BY 
-        referral_id
+            referral_id
+        HAVING 
+            cumulative_amount > 0
         ORDER BY 
-            SUM(point) DESC";
+            cumulative_amount DESC
+        LIMIT 5";
 
     // Execute the query
     $results = $wpdb->get_results($query);
-    //return var_dump($results);
+
     // Output the results in table format
     if ($results) {
         $output = '<table>';
-        $output .= '<tr><th>User Name</th><th>Referral Code</th><th>Cumulative Amount</th><th>Cumulative Points</th></tr>';
+        $output .= '<tr><th>Ranking</th><th>Participant Name</th><th>Referral Code</th><th>Country</th><th>Amount</th></tr>';
+        $rank = 1;
         foreach ($results as $result) {
-            $referral_id = $result->referral_id ;
-            $user_meta_table = $wpdb->prefix.'usermeta';
+            $referral_id = $result->referral_id;
+            $country = $result->country;
+            
+            // Get user ID by referral ID
             $user_id = $wpdb->get_var($wpdb->prepare("
                 SELECT user_id
-                FROM $user_meta_table
-                WHERE meta_key = 'uhc_referral_code'
-                AND meta_value = %s
+                FROM $wpdb->users
+                WHERE ID IN (
+                    SELECT user_id
+                    FROM $wpdb->usermeta
+                    WHERE meta_key = 'uhc_referral_code' AND meta_value = %s
+                )
             ", $referral_id));
-            $user = get_user_by( 'id', $user_id );
-            $name = $user->user_firstname;
+
+            // Get user name by user ID
+            $user = get_userdata($user_id);
+            $name = $user ? $user->display_name : 'N/A';
+
+            // Add medal icons for top three
+            $medal = '';
+            if ($rank == 1) {
+                $medal = '<img src="gold_medal_icon_url" alt="Gold Medal" />';
+            } elseif ($rank == 2) {
+                $medal = '<img src="silver_medal_icon_url" alt="Silver Medal" />';
+            } elseif ($rank == 3) {
+                $medal = '<img src="bronze_medal_icon_url" alt="Bronze Medal" />';
+            }
+
+            // Format amount with separators
+            $formatted_amount = number_format($result->cumulative_amount, 2);
 
             $output .= '<tr>';
+            $output .= '<td>' . $medal . $rank . '</td>';
             $output .= '<td>' . $name . '</td>';
-            $output .= '<td>' . $result->referral_id . '</td>';
-            $output .= '<td>' . $result->cumulative_amount . '</td>';
-            $output .= '<td>' . $result->cumulative_points . '</td>';
+            $output .= '<td>' . $referral_id . '</td>';
+            $output .= '<td>' . $country . '</td>';
+            $output .= '<td>' . $formatted_amount . '</td>';
             $output .= '</tr>';
+
+            $rank++;
         }
         $output .= '</table>';
     } else {
