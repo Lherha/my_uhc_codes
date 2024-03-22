@@ -224,7 +224,7 @@ function display_uhc_leaderboard_function() {
     // Table name
     $table_name = $wpdb->prefix . 'uhc_leaderboard';
 
-    // SQL query to retrieve data from the table
+    // SQL query to retrieve data from the table and sum the amounts
     $query = "
         SELECT 
             referral_id,
@@ -233,12 +233,11 @@ function display_uhc_leaderboard_function() {
         FROM 
             $table_name
         GROUP BY 
-            referral_id
+            referral_id, country
         HAVING 
             cumulative_amount > 0
         ORDER BY 
-            cumulative_amount DESC
-        LIMIT 5";
+            cumulative_amount DESC";
 
     // Execute the query
     $results = $wpdb->get_results($query);
@@ -255,17 +254,16 @@ function display_uhc_leaderboard_function() {
             // Get user ID by referral ID
             $user_id = $wpdb->get_var($wpdb->prepare("
                 SELECT user_id
-                FROM $wpdb->users
-                WHERE ID IN (
-                    SELECT user_id
-                    FROM $wpdb->usermeta
-                    WHERE meta_key = 'uhc_referral_code' AND meta_value = %s
-                )
+                FROM $wpdb->usermeta
+                WHERE meta_key = 'uhc_referral_code' AND meta_value = %s
             ", $referral_id));
 
-            // Get user name by user ID
+            // Get user details by user ID
             $user = get_userdata($user_id);
-            $name = $user ? $user->display_name : 'N/A';
+            $name = ($user && !is_wp_error($user)) ? $user->first_name . ' ' . $user->last_name : 'User Not Found';
+
+            // Format amount with separators
+            $formatted_amount = number_format($result->cumulative_amount, 2);
 
             // Add medal icons for top three
             $medal = '';
@@ -277,18 +275,18 @@ function display_uhc_leaderboard_function() {
                 $medal = '<img src="bronze_medal_icon_url" alt="Bronze Medal" />';
             }
 
-            // Format amount with separators
-            $formatted_amount = number_format($result->cumulative_amount, 2);
+            // Add row only if amount is greater than 0
+            if ($result->cumulative_amount > 0) {
+                $output .= '<tr>';
+                $output .= '<td>' . $medal . $rank . '</td>';
+                $output .= '<td>' . $name . '</td>';
+                $output .= '<td>' . $referral_id . '</td>';
+                $output .= '<td>' . $country . '</td>';
+                $output .= '<td>' . $formatted_amount . '</td>';
+                $output .= '</tr>';
 
-            $output .= '<tr>';
-            $output .= '<td>' . $medal . $rank . '</td>';
-            $output .= '<td>' . $name . '</td>';
-            $output .= '<td>' . $referral_id . '</td>';
-            $output .= '<td>' . $country . '</td>';
-            $output .= '<td>' . $formatted_amount . '</td>';
-            $output .= '</tr>';
-
-            $rank++;
+                $rank++;
+            }
         }
         $output .= '</table>';
     } else {
